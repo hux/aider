@@ -26,23 +26,31 @@ RUN mkdir -p /home/appuser/.aider /home/appuser/.cache /home/appuser/pw-browsers
 RUN git config --system --add safe.directory /app
 
 #########################
-FROM base AS aider-full
+FROM base AS deps-full
 
-ENV AIDER_DOCKER_IMAGE=paulgauthier/aider-full
-
-COPY . /tmp/aider
-
-# Install dependencies as root
+# Install core dependencies without the actual package
 RUN /venv/bin/python -m pip install --upgrade --no-cache-dir pip && \
-    /venv/bin/python -m pip install --no-cache-dir /tmp/aider[help,browser,playwright] \
-       --extra-index-url https://download.pytorch.org/whl/cpu && \
-    rm -rf /tmp/aider
+    /venv/bin/python -m pip install --no-cache-dir \
+        'playwright>=1.39' \
+        'torch' \
+        'transformers' \
+        --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install playwright browsers
 RUN /venv/bin/python -m playwright install --with-deps chromium
 
 # Fix site-packages permissions
 RUN find /venv/lib/python3.10/site-packages \( -type d -exec chmod a+rwx {} + \) -o \( -type f -exec chmod a+rw {} + \)
+
+#########################
+FROM deps-full AS aider-full
+
+ENV AIDER_DOCKER_IMAGE=paulgauthier/aider-full
+
+# Now copy the actual code and install it
+COPY . /tmp/aider/
+RUN /venv/bin/python -m pip install --no-cache-dir /tmp/aider[help,browser,playwright] && \
+    rm -rf /tmp/aider
 
 # Switch to appuser
 USER appuser
@@ -50,23 +58,29 @@ USER appuser
 ENTRYPOINT ["/venv/bin/aider"]
 
 #########################
-FROM base AS aider
+FROM base AS deps-min
 
-ENV AIDER_DOCKER_IMAGE=paulgauthier/aider
-
-COPY . /tmp/aider
-
-# Install dependencies as root
+# Install minimal dependencies without the actual package
 RUN /venv/bin/python -m pip install --upgrade --no-cache-dir pip && \
-    /venv/bin/python -m pip install --no-cache-dir /tmp/aider[playwright] \
-       --extra-index-url https://download.pytorch.org/whl/cpu && \
-    rm -rf /tmp/aider
+    /venv/bin/python -m pip install --no-cache-dir \
+        'playwright>=1.39' \
+        --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install playwright browsers
 RUN /venv/bin/python -m playwright install --with-deps chromium
 
 # Fix site-packages permissions
 RUN find /venv/lib/python3.10/site-packages \( -type d -exec chmod a+rwx {} + \) -o \( -type f -exec chmod a+rw {} + \)
+
+#########################
+FROM deps-min AS aider
+
+ENV AIDER_DOCKER_IMAGE=paulgauthier/aider
+
+# Now copy the actual code and install it
+COPY . /tmp/aider/
+RUN /venv/bin/python -m pip install --no-cache-dir /tmp/aider[playwright] && \
+    rm -rf /tmp/aider
 
 # Switch to appuser
 USER appuser
